@@ -6,7 +6,7 @@ on:
       - main
       - master
     paths:
-      - '**/*.txt'  # Trigger on ANY .txt file change
+      - '**/*.txt'
       - '.github/workflows/youtube-screenshot.yml'
   workflow_dispatch:
     inputs:
@@ -339,22 +339,11 @@ jobs:
         id: find_files
         run: |
           echo "Searching for .txt files with YouTube URLs..."
-          
-          # Find all .txt files (excluding output directory and hidden files)
-          find . -type f -name "*.txt" \
-            ! -path "./output/*" \
-            ! -path "./.git/*" \
-            ! -path "./.*" \
-            > found_files.txt
-          
-          # Display found files
+          find . -type f -name "*.txt" ! -path "./output/*" ! -path "./.git/*" ! -path "./.*" > found_files.txt
           echo "Found .txt files:"
           cat found_files.txt
-          
-          # Count files
           FILE_COUNT=$(wc -l < found_files.txt)
           echo "total_files=$FILE_COUNT" >> $GITHUB_OUTPUT
-          
           if [ "$FILE_COUNT" -eq 0 ]; then
             echo "⚠️  No .txt files found"
           else
@@ -365,63 +354,39 @@ jobs:
         if: steps.find_files.outputs.total_files > 0
         run: |
           mkdir -p output
-          
           echo "========================================="
           echo "Processing all .txt files"
           echo "========================================="
-          
           while IFS= read -r txt_file; do
             echo ""
             echo "📄 Processing file: $txt_file"
             echo "-----------------------------------------"
-            
-            # Skip empty files
             if [ ! -s "$txt_file" ]; then
               echo "⏭️  Skipping empty file"
               continue
             fi
-            
-            # Process each line in the .txt file
             while IFS= read -r line || [ -n "$line" ]; do
-              # Skip empty lines and comments
               if [[ -z "$line" ]] || [[ "$line" =~ ^[[:space:]]*# ]]; then
                 continue
               fi
-              
-              # Extract URL and interval (format: URL,interval or just URL)
               URL=$(echo "$line" | cut -d',' -f1 | xargs)
               INTERVAL=$(echo "$line" | cut -d',' -f2 | xargs)
-              
-              # Validate URL
               if [[ ! "$URL" =~ ^https?:// ]]; then
                 echo "⏭️  Skipping invalid URL: $URL"
                 continue
               fi
-              
-              # Default interval if not specified
               if [ -z "$INTERVAL" ] || [ "$INTERVAL" = "$URL" ]; then
                 INTERVAL=5
               fi
-              
               echo ""
               echo "🎬 Processing video:"
               echo "   URL: $URL"
               echo "   Interval: $INTERVAL seconds"
               echo "   Source: $txt_file"
               echo ""
-              
-              # Process the video
-              python youtube_screenshots.py \
-                "$URL" \
-                "$INTERVAL" \
-                --output-dir output \
-                --quality highest \
-                --pdf-dpi 600 || echo "⚠️  Failed to process $URL"
-              
+              python youtube_screenshots.py "$URL" "$INTERVAL" --output-dir output --quality highest --pdf-dpi 600 || echo "⚠️  Failed to process $URL"
             done < "$txt_file"
-            
           done < found_files.txt
-          
           echo ""
           echo "========================================="
           echo "✅ All .txt files processed"
@@ -431,97 +396,58 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.video_url != ''
         run: |
           mkdir -p output
-          python youtube_screenshots.py \
-            "${{ github.event.inputs.video_url }}" \
-            "${{ github.event.inputs.interval }}" \
-            --output-dir output \
-            --quality highest \
-            --pdf-dpi 600
+          python youtube_screenshots.py "${{ github.event.inputs.video_url }}" "${{ github.event.inputs.interval }}" --output-dir output --quality highest --pdf-dpi 600
 
       - name: Create summary and index
         run: |
           mkdir -p output
+          CURRENT_DATE=$(date)
+          WORKFLOW_RUN="${{ github.run_number }}"
+          COMMIT_SHA="${{ github.sha }}"
           
-          # Create index of all processed videos
-          cat > output/INDEX.md << 'INDEXEOF'
-          # 📹 YouTube Screenshot Processing - Index
+          cat > output/INDEX.md << 'ENDOFINDEX'
+          # YouTube Screenshot Processing - Index
           
-          **Generated:** $(date)
-          **Workflow Run:** ${{ github.run_number }}
-          **Commit:** ${{ github.sha }}
+          ENDOFINDEX
           
-          ---
+          echo "**Generated:** $CURRENT_DATE" >> output/INDEX.md
+          echo "**Workflow Run:** $WORKFLOW_RUN" >> output/INDEX.md
+          echo "**Commit:** $COMMIT_SHA" >> output/INDEX.md
+          echo "" >> output/INDEX.md
+          echo "---" >> output/INDEX.md
+          echo "" >> output/INDEX.md
+          echo "## Processed Videos" >> output/INDEX.md
+          echo "" >> output/INDEX.md
           
-          ## 📁 Processed Videos
-          
-          INDEXEOF
-          
-          # Find all PDFs and create index
-          if find output -name "*.pdf" -type f | grep -q .; then
-            echo "" >> output/INDEX.md
+          if find output -name "*_HD.pdf" -type f | grep -q .; then
             echo "| Video | PDF | Transcript | Screenshots |" >> output/INDEX.md
             echo "|-------|-----|------------|-------------|" >> output/INDEX.md
-            
             for pdf in $(find output -name "*_HD.pdf" -type f | sort); do
               dir=$(dirname "$pdf")
               basename=$(basename "$dir")
               pdf_name=$(basename "$pdf")
               transcript="${dir}/${basename}_transcript.txt"
               screenshot_count=$(find "${dir}/images" -name "*.png" -o -name "*.jpg" 2>/dev/null | wc -l)
-              
               transcript_link="❌"
               if [ -f "$transcript" ]; then
-                transcript_link="[📝 View]($(realpath --relative-to=output "$transcript"))"
+                transcript_link="📝 Yes"
               fi
-              
-              echo "| $basename | [📄 Download]($(realpath --relative-to=output "$pdf")) | $transcript_link | $screenshot_count |" >> output/INDEX.md
+              echo "| $basename | [Download](./$basename/$pdf_name) | $transcript_link | $screenshot_count |" >> output/INDEX.md
             done
           else
-            echo "" >> output/INDEX.md
             echo "*No videos processed yet.*" >> output/INDEX.md
           fi
           
-          # Add structure info
-          cat >> output/INDEX.md << 'STRUCTEOF'
+          echo "" >> output/INDEX.md
+          echo "---" >> output/INDEX.md
+          echo "" >> output/INDEX.md
+          echo "## How to Add More Videos" >> output/INDEX.md
+          echo "" >> output/INDEX.md
+          echo "1. Create or edit any .txt file" >> output/INDEX.md
+          echo "2. Add YouTube URLs (one per line): \`https://youtu.be/VIDEO_ID,5\`" >> output/INDEX.md
+          echo "3. Commit and push - automatic processing!" >> output/INDEX.md
           
-          ---
-          
-          ## 📂 Directory Structure
-```
-          output/
-          ├── INDEX.md                    (This file)
-          ├── [Video_Title_1]/
-          │   ├── [Video_Title_1]_HD.pdf          (High-quality PDF)
-          │   ├── [Video_Title_1]_transcript.txt  (Video transcript)
-          │   └── images/
-          │       ├── [Video_Title_1]_0000s.png
-          │       ├── [Video_Title_1]_0005s.png
-          │       └── ...
-          └── [Video_Title_2]/
-              └── ...
-```
-          
-          ---
-          
-          ## 📝 How to Add More Videos
-          
-          1. Create or edit any `.txt` file in the repository
-          2. Add YouTube URLs (one per line):
-```
-             https://youtu.be/VIDEO_ID1,5
-             https://youtu.be/VIDEO_ID2,10
-```
-          3. Commit and push - the workflow will automatically process them!
-          
-          ## 📥 Download Options
-          
-          - **Individual Files**: Click the PDF links above
-          - **Complete Archive**: Download from GitHub Actions artifacts
-          - **Clone Repository**: `git clone <repo-url>` to get all files
-          
-          STRUCTEOF
-          
-          echo "✓ Index created at output/INDEX.md"
+          echo "✓ Index created"
 
       - name: Upload PDFs as artifacts
         uses: actions/upload-artifact@v4
@@ -539,7 +465,7 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
-      - name: Upload complete output as artifacts
+      - name: Upload complete output
         uses: actions/upload-artifact@v4
         with:
           name: complete-output-${{ github.run_number }}
@@ -551,66 +477,27 @@ jobs:
         run: |
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name "github-actions[bot]"
-          
-          # Add all generated files
           git add output/ || true
-          
-          # Check if there are changes
           if git diff --staged --quiet; then
-            echo "ℹ️  No new files to commit"
+            echo "No new files to commit"
           else
-            # Create detailed commit message
             FILES_ADDED=$(git diff --staged --name-only | wc -l)
-            git commit -m "🎬 Auto-generated: YouTube screenshots and PDFs
-
-          - Files added: $FILES_ADDED
-          - Workflow run: ${{ github.run_number }}
-          - Commit: ${{ github.sha }}
-          
-          [skip ci]"
-            
-            echo "✅ Committed $FILES_ADDED files"
-            
-            # Push changes
-            git push || {
-              echo "⚠️  Push failed. You may need to:"
-              echo "   1. Enable 'Read and write permissions' in Settings > Actions > General"
-              echo "   2. Or manually pull and push the changes"
-            }
+            git commit -m "Auto-generated: YouTube screenshots and PDFs - $FILES_ADDED files [skip ci]"
+            echo "Committed $FILES_ADDED files"
+            git push || echo "Push failed - check repository permissions"
           fi
 
       - name: Create job summary
         run: |
-          echo "# 🎬 YouTube Screenshot Processing Complete" >> $GITHUB_STEP_SUMMARY
+          echo "# YouTube Screenshot Processing Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## 📊 Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
           PDF_COUNT=$(find output -name "*_HD.pdf" -type f 2>/dev/null | wc -l)
           TXT_COUNT=$(find output -name "*_transcript.txt" -type f 2>/dev/null | wc -l)
-          IMG_COUNT=$(find output -name "*.png" -o -name "*.jpg" -type f 2>/dev/null | wc -l)
-          
-          echo "- 📄 PDFs generated: **$PDF_COUNT**" >> $GITHUB_STEP_SUMMARY
-          echo "- 📝 Transcripts: **$TXT_COUNT**" >> $GITHUB_STEP_SUMMARY
-          echo "- 🖼️ Screenshots: **$IMG_COUNT**" >> $GITHUB_STEP_SUMMARY
+          IMG_COUNT=$(find output -type f \( -name "*.png" -o -name "*.jpg" \) 2>/dev/null | wc -l)
+          echo "- PDFs generated: $PDF_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Transcripts: $TXT_COUNT" >> $GITHUB_STEP_SUMMARY
+          echo "- Screenshots: $IMG_COUNT" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "## 📥 Download" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Files are available in three ways:" >> $GITHUB_STEP_SUMMARY
-          echo "1. **Artifacts** (scroll down) - Separate PDFs and transcripts" >> $GITHUB_STEP_SUMMARY
-          echo "2. **Repository** - Files committed to \`output/\` directory" >> $GITHUB_STEP_SUMMARY
-          echo "3. **View Index** - Check \`output/INDEX.md\` for direct links" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          if [ "$PDF_COUNT" -gt 0 ]; then
-            echo "## 📋 Processed Videos" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            
-            for pdf in $(find output -name "*_HD.pdf" -type f | sort); do
-              dir=$(dirname "$pdf")
-              basename=$(basename "$dir")
-              size=$(du -h "$pdf" | cut -f1)
-              echo "- **$basename** ($size)" >> $GITHUB_STEP_SUMMARY
-            done
-          fi
+          echo "Files are available in:" >> $GITHUB_STEP_SUMMARY
+          echo "1. Repository output/ directory" >> $GITHUB_STEP_SUMMARY
+          echo "2. Artifacts section (scroll down)" >> $GITHUB_STEP_SUMMARY
