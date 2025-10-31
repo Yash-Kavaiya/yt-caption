@@ -45,12 +45,16 @@ def index():
 @app.route('/<video_id>', methods=['GET'])
 def get_transcript(video_id):
     try:
-        transcript = YouTubeTranscriptApi.get_transcript(video_id)
+        api = YouTubeTranscriptApi()
+        transcript = api.fetch(video_id)
         # Convert the transcript list to pretty JSON format
         pretty_transcript = jsonify(transcript).json
         return render_template_string(HTML_TEMPLATE, transcript=pretty_transcript, video_id=video_id)
     except (TranscriptsDisabled, NoTranscriptFound) as e:
         return render_template_string(HTML_TEMPLATE, error=str(e), video_id=video_id)
+    except Exception as e:
+        # Catch all other exceptions (connection errors, etc.)
+        return render_template_string(HTML_TEMPLATE, error=f"Error fetching transcript: {str(e)}", video_id=video_id)
 
 if __name__ == '__main__':
     app.run(debug=True, host="0.0.0.0")
